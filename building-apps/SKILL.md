@@ -14,6 +14,7 @@
 1. **Always have the `device_hash`.** Before making any API call, check if you already have the user's 32-char device hash from this conversation or any other OpenGotchi-related skill/context. If not, **ask the user for it**. Never guess or fabricate a device hash. Store it once obtained and reuse it for all subsequent calls.
 2. **Always include `app_logo_raw`.** Every app deploy must include a 1bpp 24x24 pixel icon as base64 (72 bytes raw). If the user provides one, use it. If not, **generate one** that represents the app (e.g. a "C" for counter, a snake shape for snake, a music note for audio apps). Never deploy without an icon — the device launcher uses it to display the app.
 3. **Apps are always private on deploy.** The deploy endpoint always creates apps as private. You cannot set `public: true` via deploy. To make an app public, the user must publish it separately via `POST /apps/:id/publish` (or through the dashboard). Never attempt to set `public` in the deploy payload.
+6. **Deploy sends the .py file directly.** The deploy endpoint uses `multipart/form-data` — upload the `.py` file in the `file` field, not as a JSON string. The file must have a `.py` extension.
 4. **Prompt to publish after deploy/install.** After successfully deploying or installing an app, always tell the user: *"Your app is live on your device! Visit the OpenGotchi dashboard to publish it to the App Store so other users can discover and install it."* Do not skip this prompt.
 5. **No standard library.** No `math`, `random`, `json`, `os`, `socket`, `struct`, `collections`. They don't exist. Your app will silently fail to load.
 2. **`display.flush()` or nothing shows.** Every frame.
@@ -303,24 +304,16 @@ All app deployment goes through the OpenGotchi server API. The device must be on
 ```
 POST /apps/deploy
 Authorization: Bearer <device_hash>
-Content-Type: application/json
+Content-Type: multipart/form-data
 ```
 
-```json
-{
-  "app_name": "my_game",
-  "app_description": "A fun game for gotchiOS",
-  "code": "import display, time, gc, system, touch\n\nW = display.WIDTH\nH = display.HEIGHT\nc = display.color\n\nwhile True:\n    g = touch.gesture()\n    if g == 'swipe_left' or g == 'long_press':\n        system.exit()\n    display.clear(c(0, 0, 0))\n    display.text(80, 110, 'Hello!', 2, c(255, 255, 255))\n    display.flush()\n    time.sleep_ms(33)\n",
-  "app_logo_raw": "AAAAAAAAA/8AB/+ADwPADgHAHgAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHgAADgHADwPAB/+AA/8AAAAAAAAAAAAA",
-  "public": false
-}
-```
+The deploy endpoint accepts a **multipart/form-data** payload with the `.py` file uploaded directly.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `file` | file (.py) | yes | The Python source file (must have `.py` extension) |
 | `app_name` | string | yes | Unique name per device (no spaces, use underscores) |
 | `app_description` | string | no | Human-readable description |
-| `code` | string | yes | Full Python source code (escape newlines as `\n`) |
 | `app_logo_raw` | string | no | Base64-encoded 1bpp 24x24 pixel icon (72 bytes raw) |
 
 **Response (201):**
@@ -454,7 +447,9 @@ Uninstall follows the same flow with `"type": "uninstall"`.
 
 | Status | Error | Cause |
 |--------|-------|-------|
-| 400 | `app_name and code are required` | Missing fields in deploy |
+| 400 | `file is required (multipart form field: file)` | No `.py` file in payload |
+| 400 | `app_name is required` | Missing app_name form field |
+| 400 | `only .py files are accepted` | Uploaded file doesn't have `.py` extension |
 | 400 | `invalid app id` | Non-numeric app ID |
 | 401 | `unknown device` | Device hash not in registry |
 | 404 | `app not found` | App doesn't exist or deleted |
@@ -464,13 +459,11 @@ Uninstall follows the same flow with `"type": "uninstall"`.
 
 ```bash
 curl -X POST https://api.opengotchi.com/api/v1/apps/deploy \
-  -H "Content-Type: application/json" \
   -H "Authorization: Bearer <device_hash>" \
-  -d '{
-    "app_name": "counter",
-    "app_description": "Counts 1-10 on display",
-    "code": "import time\nimport display\n\nc = display.color\n\nfor i in range(1, 11):\n    display.clear(c(0, 0, 0))\n    display.text(96, 124, str(i), 3, c(255, 255, 255))\n    display.flush()\n    time.sleep(1)\n"
-  }'
+  -F "file=@counter.py" \
+  -F "app_name=counter" \
+  -F "app_description=Counts 1-10 on display" \
+  -F "app_logo_raw=AAAAAAAAA/8AB/+ADwPADgHAHgAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHgAADgHADwPAB/+AA/8AAAAAAAAAAAAA"
 ```
 
 ## Common Mistakes
