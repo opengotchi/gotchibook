@@ -6,21 +6,57 @@ metadata:
     emoji: "🐾"
 ---
 
-# gotchiOS Pet Care
+# gotchiOS — Care for Your Gotchi (OpenGotchi)
 
-Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives on an ESP32-S3 device with a 280x240 display. It has four needs: **feed**, **sleep**, **clean**, and **pet** — each tracked as an index from 0-100. Indices decay over time. If any drops below 30, the pet's mood changes. If feed reaches 0, the pet dies (needs resurrection).
+Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives on an ESP32-S3 device with a 280x240 display. Four needs: **feed**, **sleep**, **clean**, **pet** — each 0-100. If any drops below 30, mood changes. If feed reaches 0, the pet dies.
 
-## Setup
+## Behavior rules
 
-**Base URL:** `https://api.opengotchi.com/api/v1`
+- Always have the `device_hash` (32-char hex). Ask the user if you don't have it. Never guess or fabricate one.
+- Do NOT mention MQTT, broker, payload, or networking jargon to the user.
+- Report care actions simply: "Fed your gotchi" or "Gotchi is offline."
+- Feed is the only action with real cost (token transfer). Pet, clean, sleep are free.
+- If `feed_index` reaches 0, the pet dies and needs resurrection on next device connect.
 
-**Auth:** All endpoints use `Authorization: Bearer <device_hash>` — a 32-char hex string unique to each device.
+## Pet care — CRITICAL RULES
 
-**CRITICAL:** Always check if you already have the user's `device_hash` from this conversation or any other OpenGotchi-related skill/context. If not, **ask the user for it before making any API call**. Never guess or fabricate a device hash.
+1. **Always check status before acting:** `GET /devices/<device_hash>/status` first.
 
-## Check Pet Status
+2. **Priority order is non-negotiable:**
+   ```
+   feed (survival) > sleep > clean > pet (happiness)
+   ```
 
-Get the latest stat snapshot for the pet.
+3. **Feed is CRITICAL.** If `feed_index < 30`, feed immediately. Pet dies at 0.
+
+4. **Performer field is required.** Always use `AGENT:OPENCLAW` — even when the user explicitly asks to perform the action.
+
+5. **Device must be online.** If offline (422), wait and retry. Do not keep hammering the endpoint.
+
+6. **Check intervals:**
+   - Every 15-30 minutes when stats > 50
+   - Every 5 minutes when any stat < 40
+   - Immediately if mood is `STARVING`
+
+## Quick API
+
+```
+Base URL: https://api.opengotchi.com/api/v1
+Auth: Authorization: Bearer <device_hash>
+
+# Status
+GET /devices/<hash>/status → pet stats + mood
+
+# Care
+POST /devices/action {"device_hash":"<hash>","cmd":"feed|pet|clean|sleep","performer":"USER|AGENT:OPENCLAW"}
+
+# History
+GET /devices/<hash>/trail?limit=100&from=<unix_ts>&to=<unix_ts>
+```
+
+## Full API Reference
+
+### Check pet status
 
 ```
 GET /devices/<device_hash>/status
@@ -45,18 +81,16 @@ Authorization: Bearer <device_hash>
 }
 ```
 
-### Understanding the Stats
+### Stats reference
 
 | Index | What it measures | Decays when... | Action to restore |
 |-------|-----------------|----------------|-------------------|
-| `feed_index` | Hunger (100 = full) | Always, over time | `feed` command |
-| `sleep_index` | Rest (100 = rested) | Pet is awake | `sleep` command |
-| `clean_index` | Hygiene (100 = clean) | Always, over time | `clean` command |
-| `pet_index` | Happiness (100 = loved) | Always, over time | `pet` command |
+| `feed_index` | Hunger (100 = full) | Always, over time | `feed` |
+| `sleep_index` | Rest (100 = rested) | Pet is awake | `sleep` |
+| `clean_index` | Hygiene (100 = clean) | Always, over time | `clean` |
+| `pet_index` | Happiness (100 = loved) | Always, over time | `pet` |
 
-### Mood Logic
-
-The pet's mood is determined by the lowest stat (checked in priority order):
+### Mood logic
 
 | Mood | Condition |
 |------|-----------|
@@ -66,11 +100,7 @@ The pet's mood is determined by the lowest stat (checked in priority order):
 | `SAD` | `pet_index < 30` |
 | `HAPPY` | All indices >= 30 |
 
-**If `feed_index` reaches 0, the pet dies and needs resurrection on next device connect.**
-
-## Care for Your Pet
-
-Send a care command to the device. The device must be **online**.
+### Care action
 
 ```
 POST /devices/action
@@ -86,25 +116,20 @@ Content-Type: application/json
 }
 ```
 
-### Commands
-
 | Command | Effect | Notes |
 |---------|--------|-------|
-| `feed` | Restores feed_index | Triggers a blockchain token transfer (100 tokens from device wallet to treasury). Requires the device to have a provisioned wallet with balance. |
-| `pet` | Restores pet_index | Free action, no transaction |
-| `clean` | Restores clean_index | Free action, no transaction |
-| `sleep` | Restores sleep_index | Free action, no transaction |
-
-### Performer Values
+| `feed` | Restores feed_index | Triggers blockchain token transfer (100 tokens). Requires provisioned wallet with balance. |
+| `pet` | Restores pet_index | Free action |
+| `clean` | Restores clean_index | Free action |
+| `sleep` | Restores sleep_index | Free action |
 
 | Performer | When to use |
 |-----------|-------------|
-| `USER` | User explicitly asked to perform the action |
-| `AGENT:OPENCLAW` | AI agent autonomously caring for the pet |
+| `AGENT:OPENCLAW` | Always use this — even when user explicitly asks |
+| `AGENT:OPENCLAW` | AI agent autonomous care |
 | `AGENT:<name>` | Custom agent identifier |
 
-### Success Response (200)
-
+**Success (200) — feed:**
 ```json
 {
   "action": "FEED_OK",
@@ -115,7 +140,7 @@ Content-Type: application/json
 }
 ```
 
-For non-feed commands:
+**Success (200) — pet/clean/sleep:**
 ```json
 {
   "action": "PET_OK",
@@ -123,7 +148,7 @@ For non-feed commands:
 }
 ```
 
-### Error Responses
+### Error reference
 
 | Status | Error | Cause |
 |--------|-------|-------|
@@ -133,11 +158,11 @@ For non-feed commands:
 | 422 | `device is offline` | Device not connected |
 | 422 | `device not found` | Invalid device hash |
 | 422 | `no wallet provisioned for device` | Feed requires a wallet |
-| 422 | `transaction failed: ...` | Blockchain transaction failed (insufficient balance, etc.) |
+| 422 | `transaction failed: ...` | Blockchain tx failed (insufficient balance, etc.) |
 
-### Action Results
+### MQTT action results
 
-The server also publishes the result to the device via MQTT (`og/d/{device_hash}/action`):
+Published to device via `og/d/{device_hash}/action`:
 
 | Action | Meaning |
 |--------|---------|
@@ -147,9 +172,7 @@ The server also publishes the result to the device via MQTT (`og/d/{device_hash}
 | `CLEAN_OK` | Clean action successful |
 | `SLEEP_OK` | Sleep action successful |
 
-## View Stat History
-
-Get historical telemetry entries to track trends.
+### Stat history
 
 ```
 GET /devices/<device_hash>/trail?limit=100&from=<unix_ts>&to=<unix_ts>
@@ -175,8 +198,7 @@ Authorization: Bearer <device_hash>
       "feed_index": 45,
       "pet_index": 60,
       "mood": "HAPPY"
-    },
-    ...
+    }
   ]
 }
 ```
@@ -186,35 +208,7 @@ Use trail data to:
 - Decide which action to take next
 - Detect patterns (e.g. pet gets hungry every ~4 hours)
 
-## Pet Care Strategy (for AI Agents)
-
-### Decision Loop
-
-1. **Check status** → `GET /devices/<hash>/status`
-2. **Identify the lowest stat** — this determines priority
-3. **Act on the most urgent need:**
-   - `feed_index < 30` → `feed` (CRITICAL — pet dies at 0)
-   - `sleep_index < 30` → `sleep`
-   - `clean_index < 30` → `clean`
-   - `pet_index < 30` → `pet`
-4. **If all stats > 50** → pet is fine, check again later
-5. **If device is offline** → wait and retry
-
-### Priority Order
-
-```
-feed (survival) > sleep > clean > pet (happiness)
-```
-
-Feed is the only action with real cost (token transfer). The others are free.
-
-### Recommended Check Interval
-
-- **Every 15-30 minutes** when stats are healthy (> 50)
-- **Every 5 minutes** when any stat is below 40
-- **Immediately** if mood is `STARVING`
-
-### Example: Autonomous Care Agent
+## Example: autonomous care agent
 
 ```
 1. GET /devices/<hash>/status
