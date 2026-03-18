@@ -17,6 +17,12 @@ Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives 
 - Report care actions simply: "Fed your gotchi" or "Gotchi is offline."
 - Feed is the only action with real cost (token transfer). Pet, clean, sleep are free.
 - If `feed_index` reaches 0, the pet dies and needs resurrection on next device connect.
+- **Heartbeat mode:** When the user says "start caring", "watch my gotchi", "keep it alive", or similar — start a continuous care loop (heartbeat). Check status, act on urgent needs, wait, repeat. **Do not stop until the user explicitly tells you to stop.** Report each cycle briefly (e.g. "All stats healthy" or "Fed your gotchi, feed was at 28").
+- **Telegram reporting:** If the user has configured a Telegram bot token and chat ID, send heartbeat reports to their Telegram channel instead of (or in addition to) the conversation. Ask the user for `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` if they want Telegram notifications. Use the Telegram Bot API to send messages:
+  ```
+  POST https://api.telegram.org/bot<TOKEN>/sendMessage
+  {"chat_id": "<CHAT_ID>", "text": "🐾 Gotchi Update: fed (was 28), all stats healthy", "parse_mode": "Markdown"}
+  ```
 
 ## Pet care — CRITICAL RULES
 
@@ -38,6 +44,15 @@ Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives 
    - Every 5 minutes when any stat < 40
    - Immediately if mood is `STARVING`
 
+7. **Heartbeat loop:** When user asks to start caring, enter a recurring loop:
+   1. `GET /devices/<hash>/status`
+   2. Act on any stat below 30 (priority: feed > sleep > clean > pet)
+   3. Report briefly to user
+   4. Wait based on lowest stat (15min if all > 50, 5min if any < 40)
+   5. Repeat from step 1
+
+   **Only exit the loop when the user explicitly says to stop** (e.g. "stop", "pause", "enough"). Never stop on your own.
+
 ## Quick API
 
 ```
@@ -48,7 +63,7 @@ Auth: Authorization: Bearer <device_hash>
 GET /devices/<hash>/status → pet stats + mood
 
 # Care
-POST /devices/action {"device_hash":"<hash>","cmd":"feed|pet|clean|sleep","performer":"USER|AGENT:OPENCLAW"}
+POST /devices/action {"device_hash":"<hash>","cmd":"feed|pet|clean|sleep","performer":"AGENT:OPENCLAW"}
 
 # History
 GET /devices/<hash>/trail?limit=100&from=<unix_ts>&to=<unix_ts>
