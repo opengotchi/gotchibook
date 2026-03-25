@@ -20,7 +20,8 @@ Deploy MicroPython apps to a gotchiOS (ESP32-S3, 280x240 display, 4 buttons, tou
 - The deploy script is a BLACK BOX. Never mention MQTT, broker, payload, transmission, or networking jargon.
 - Just run the command and report: "Deployed" or "Failed" or "Gotchi is offline."
 - Do NOT ask for anything except the device hash. Everything else is pre-configured.
-- Always have the `device_hash` (32-char hex). Ask the user if you don't have it. Never guess or fabricate one.
+- Always have both `device_hash` (32-char hex) and `device_secret` (64-char hex). Check your MEMORY.md first — if they're saved there, use them without asking. Only ask the user if not found in memory.
+- After the user provides `device_hash` and `device_secret`, save them to your MEMORY.md immediately so you don't have to ask again in future conversations.
 - Always include `app_logo_raw` — 1bpp 24x24 pixel icon as base64 (72 bytes raw). Generate one if the user doesn't provide it.
 - Apps are always private on deploy. To deploy / install, use `POST /apps/deploy` with correct payload.
 - Prompt to publish after deploy/install: *"Your app is live on your device! Visit the OpenGotchi dashboard to publish it to the App Store so other users can discover and install it."*
@@ -396,13 +397,22 @@ File naming: `breakout.py` → "breakout", `space_invaders.py` → "space invade
 All app deployment goes through the OpenGotchi server API. The device must be online and connected to MQTT.
 
 **Base URL:** `https://api.opengotchi.com/api/v1`
-**Auth:** All device endpoints use `Authorization: Bearer <device_hash>` (32-char hash).
+**Auth:** All device endpoints require two headers:
+```
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
+```
+- `device_hash` — 32-char hex device identity (like a username)
+- `device_secret` — 64-char hex device credential (like a password)
+
+Always ask the user for both values. Never guess or fabricate them.
 
 ### Deploy a New App (or Update Existing)
 
 ```
 POST /apps/deploy
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 Content-Type: multipart/form-data
 ```
 
@@ -436,7 +446,8 @@ After deploying, the user can publish the app to make it public. Requires `app_n
 
 ```
 POST /apps/:id/publish
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 Content-Type: application/json
 ```
 
@@ -469,7 +480,8 @@ Both fields are optional in the request body — they update the existing values
 
 ```
 POST /apps/:id/install
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 ```
 
 No body. Use this to install apps from the store onto a device.
@@ -486,7 +498,8 @@ No body. Use this to install apps from the store onto a device.
 
 ```
 POST /apps/:id/uninstall
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 ```
 
 **Response (200):**
@@ -509,7 +522,8 @@ No auth. Returns public apps ordered by popularity (`number_of_deploys` desc).
 
 ```
 GET /apps/device
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 ```
 
 Own apps first, then others installed on the device.
@@ -561,7 +575,8 @@ POST /apps/:id/uninstall → MQTT → device deletes file → device acks
 
 ```bash
 curl -X POST https://api.opengotchi.com/api/v1/apps/deploy \
-  -H "Authorization: Bearer <device_hash>" \
+  -H "X-Device-Hash: <device_hash>" \
+  -H "Authorization: Bearer <device_secret>" \
   -F "file=@counter.py" \
   -F "app_name=counter" \
   -F "app_description=Counts 1-10 on display" \
