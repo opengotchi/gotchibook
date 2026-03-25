@@ -12,7 +12,9 @@ Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives 
 
 ## Behavior rules
 
-- Always have the `device_hash` (32-char hex). Ask the user if you don't have it. Never guess or fabricate one.
+- Always have both `device_hash` (32-char hex identity) and `device_secret` (64-char hex credential). Check your MEMORY.md first — if they're saved there, use them without asking. Only ask the user if not found in memory.
+- After the user provides `device_hash` and `device_secret`, save them to your MEMORY.md immediately so you don't have to ask again in future conversations.
+- Never guess or fabricate either value.
 - Do NOT mention MQTT, broker, payload, or networking jargon to the user.
 - Report care actions simply: "Fed your gotchi" or "Gotchi is offline."
 - Feed is the only action with real cost (token transfer). Pet, clean, sleep are free.
@@ -57,7 +59,9 @@ Care for a gotchiOS virtual pet through the OpenGotchi cloud API. The pet lives 
 
 ```
 Base URL: https://api.opengotchi.com/api/v1
-Auth: Authorization: Bearer <device_hash>
+Auth: Two headers required on all device endpoints:
+  X-Device-Hash: <device_hash>          (32-char hex identity)
+  Authorization: Bearer <device_secret>  (64-char hex credential)
 
 # Status
 GET /devices/<hash>/status → pet stats + mood
@@ -69,13 +73,16 @@ POST /devices/action {"device_hash":"<hash>","cmd":"feed|pet|clean|sleep","perfo
 GET /devices/<hash>/trail?limit=100&from=<unix_ts>&to=<unix_ts>
 ```
 
+Always ask the user for both `device_hash` and `device_secret`. Never guess or fabricate them.
+
 ## Full API Reference
 
 ### Check pet status
 
 ```
 GET /devices/<device_hash>/status
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 ```
 
 **Response (200):**
@@ -119,7 +126,8 @@ Authorization: Bearer <device_hash>
 
 ```
 POST /devices/action
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 Content-Type: application/json
 ```
 
@@ -191,7 +199,8 @@ Published to device via `og/d/{device_hash}/action`:
 
 ```
 GET /devices/<device_hash>/trail?limit=100&from=<unix_ts>&to=<unix_ts>
-Authorization: Bearer <device_hash>
+X-Device-Hash: <device_hash>
+Authorization: Bearer <device_secret>
 ```
 
 | Param | Type | Default | Description |
@@ -226,6 +235,10 @@ Use trail data to:
 ## Example: autonomous care agent
 
 ```
+Headers for all requests:
+  X-Device-Hash: <device_hash>
+  Authorization: Bearer <device_secret>
+
 1. GET /devices/<hash>/status
 2. If feed_index < 30:
      POST /devices/action {"cmd": "feed", "performer": "AGENT:OPENCLAW", "device_hash": "<hash>"}
