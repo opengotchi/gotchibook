@@ -61,7 +61,7 @@ python3 ~/gotchiOS/scripts/mqtt_deploy.py HASH --action delete --name app.py
 
 7. **Colors:** Always `display.color(r, g, b)`, never hardcode RGB565.
 
-8. **Deploy sends the .py file directly.** The deploy endpoint uses `multipart/form-data` — upload the `.py` file in the `file` field. Must have `.py` extension.
+8. **Deploy sends the code to the device.** The deploy endpoint uses `multipart/form-data` — upload the `.py` file in the `file` field (must have `.py` extension). If your agent/runtime can't do multipart file uploads, send the raw source inline as the `app_code` form field instead — no file needed.
 
 9. **Keep files under 15KB.** Larger works but loads from slower PSRAM.
 
@@ -416,11 +416,14 @@ Authorization: Bearer <device_secret>
 Content-Type: multipart/form-data
 ```
 
-The deploy endpoint accepts a **multipart/form-data** payload with the `.py` file uploaded directly.
+The deploy endpoint accepts a **multipart/form-data** (or `application/x-www-form-urlencoded`) payload. Provide the app source **either** as an uploaded `.py` file (`file`) **or** as raw source text (`app_code`) — at least one is required.
+
+> **No multipart/file upload support?** If your agent or HTTP client can't attach files or send multipart bodies, send the raw Python source in the `app_code` field instead. It works as a plain `application/x-www-form-urlencoded` POST — no `.py` file, no multipart. The server stores it exactly like an uploaded file.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | file (.py) | yes | The Python source file (must have `.py` extension) |
+| `file` | file (.py) | one of `file` / `app_code` | The Python source file (must have `.py` extension). Takes precedence when both are sent. |
+| `app_code` | string | one of `file` / `app_code` | Raw Python source sent inline. Use when you can't upload a multipart file. Ignored if `file` is also present. |
 | `app_name` | string | yes | Unique name per device (no spaces, use underscores) |
 | `app_description` | string | no | Human-readable description |
 | `app_logo_raw` | string | no | Base64-encoded 1bpp 24x24 pixel icon (72 bytes raw) |
@@ -550,7 +553,6 @@ GET /apps/:id/file
 ```
 
 Returns the raw `.py` file directly (`Content-Type: text/x-python`). No JSON.
-```
 
 ### How It Works
 
@@ -563,7 +565,7 @@ POST /apps/:id/uninstall → MQTT → device deletes file → device acks
 
 | Status | Error | Cause |
 |--------|-------|-------|
-| 400 | `file is required (multipart form field: file)` | No `.py` file in payload |
+| 400 | `app source is required: upload a .py file (multipart field: file) or send raw code (field: app_code)` | Neither `file` nor `app_code` in payload |
 | 400 | `app_name is required` | Missing app_name form field |
 | 400 | `only .py files are accepted` | Uploaded file doesn't have `.py` extension |
 | 400 | `invalid app id` | Non-numeric app ID |
@@ -581,6 +583,20 @@ curl -X POST https://api.opengotchi.com/api/v1/apps/deploy \
   -F "app_name=counter" \
   -F "app_description=Counts 1-10 on display" \
   -F "app_logo_raw=AAAAAAAAA/8AB/+ADwPADgHAHgAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHAAAHgAADgHADwPAB/+AA/8AAAAAAAAAAAAA"
+```
+
+### Example: Deploy with raw code (no file / multipart)
+
+If your agent or HTTP client can't attach files or send multipart bodies, send the source inline in `app_code`. This is a plain `application/x-www-form-urlencoded` POST — no file, no multipart:
+
+```bash
+curl -X POST https://api.opengotchi.com/api/v1/apps/deploy \
+  -H "X-Device-Hash: <device_hash>" \
+  -H "Authorization: Bearer <device_secret>" \
+  --data-urlencode "app_name=counter" \
+  --data-urlencode "app_description=Counts 1-10 on display" \
+  --data-urlencode "app_logo_raw=<24x24-1bpp-base64>" \
+  --data-urlencode "app_code=$(cat counter.py)"
 ```
 
 ## Template
