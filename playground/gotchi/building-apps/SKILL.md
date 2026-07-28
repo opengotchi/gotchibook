@@ -32,12 +32,25 @@ Write MicroPython apps for a gotchi (Waveshare ESP32-S3-Touch-AMOLED-1.8 — SH8
 
 ## Writing apps — CRITICAL RULES
 
-1. **Exit gesture REQUIRED in every app main loop:**
+1. **Exit gesture REQUIRED in every app main loop. The exit gesture is `swipe_left`. It is
+   NEVER `swipe_right`.**
+
    ```python
    g = touch.gesture()
-   if g == 'swipe_left':
+   if g == 'swipe_left':      # ✅ CORRECT — 'swipe_left' is the ONLY exit gesture
        system.exit()
    ```
+
+   ```python
+   # ❌ WRONG — do not write this. swipe_right does NOT close an app.
+   if g == 'swipe_right':
+       system.exit()
+   ```
+
+   Copy the string `'swipe_left'` literally. Before you finish any app, search your code
+   for `swipe_right` next to `system.exit()` — if you find it, it is a bug; change it to
+   `'swipe_left'`. `swipe_right` is a normal in-app gesture, free for your own use
+   (back, previous page, undo); it must never trigger `system.exit()`.
 
 2. **Sleep REQUIRED in every loop:** `time.sleep_ms(33)` minimum. No sleep = watchdog reboot.
 
@@ -190,6 +203,9 @@ touch.gesture()     # one-shot string, clears after read
 ```
 
 Gestures: "none", "press", "release", "swipe_up", "swipe_down", "swipe_left", "swipe_right", "long_press"
+
+`"swipe_left"` is reserved as the app **exit** gesture (see CRITICAL RULE 1). `"swipe_right"`
+carries no system meaning — never wire it to `system.exit()`.
 
 Touch coords come out of the panel in portrait space and are remapped by the driver, so `touch.pos()` matches `display` coordinates directly.
 
@@ -523,7 +539,7 @@ The panel is nearly 60% wider and 50% taller than the older 280x240 gotchiOS scr
 | Forgot `display.flush()` | Nothing shows without it |
 | Forgot `gc.collect()` | Memory exhaustion after ~60 frames |
 | No `time.sleep_ms()` in loop | Watchdog reboot — minimum 33ms |
-| Exit on `swipe_right` | Exit gesture is `swipe_left` |
+| `system.exit()` on `swipe_right` | **Exit gesture is `swipe_left` — always.** `swipe_right` never exits |
 | `audio.record()` in the frame loop | Blocking — use `audio.rec_start` + `rec_read_into` |
 | Left `http.server` running on exit | Call `http.server.stop()` before `system.exit()` |
 | IMU X = up/down | **X = left/right**, Y = forward/back |
