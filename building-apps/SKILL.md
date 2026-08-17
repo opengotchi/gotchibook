@@ -1,5 +1,5 @@
 ---
-name: gotchi
+name: building-apps
 description: "Deploy Python apps to a gotchiOS. Only needs the device hash (32 hex chars). Use when user mentions gotchi, deploying, uploading, creating, flashing, or installing."
 metadata:
   openclaw:
